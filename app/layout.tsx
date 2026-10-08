@@ -5,23 +5,8 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'TaskFlow — Team project management',
   description: 'Plan, collaborate, and ship better work with TaskFlow.',
-  generator: 'v0.app',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/taskflow-icon.svg',
   },
 }
 
