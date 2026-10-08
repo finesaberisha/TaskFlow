@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -33,10 +34,76 @@ function Empty({ text }: { text: string }) { return <div className="rounded-lg b
 export default function Page() {
  const router = useRouter(); const [authenticated, setAuthenticated] = useState<boolean | null>(null)
  const [state, setState] = useState<State>(initial); const hydrated = useRef(false); const [page, setPage] = useState('Dashboard'); const [mobile, setMobile] = useState(false); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<number | null>(null); const selected = state.tasks.find((task) => task.id === selectedId) || null; const [quick, setQuick] = useState(false); const [command, setCommand] = useState(false); const [toast, setToast] = useState('')
- useEffect(() => { const session = localStorage.getItem('taskflow-auth') || sessionStorage.getItem('taskflow-auth'); if (!session) { router.replace('/login'); return } const profile = JSON.parse(session) as { name?: string; email?: string }; setAuthenticated(true); const saved = sessionStorage.getItem('taskflow-state'); if (saved) { try { const parsed = JSON.parse(saved) as Partial<State>; setState({ ...initial, ...parsed, members: parsed.members?.length ? parsed.members : demoMembers, projects: parsed.projects || initial.projects, tasks: parsed.tasks || initial.tasks, labels: parsed.labels || initial.labels, activities: parsed.activities || initial.activities }); } catch { sessionStorage.removeItem('taskflow-state') } } hydrated.current = true; const key = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setCommand(true) } }; addEventListener('keydown', key); return () => removeEventListener('keydown', key) }, [])
- useEffect(() => { const session = localStorage.getItem('taskflow-auth') || sessionStorage.getItem('taskflow-auth'); if (session) { const profile = JSON.parse(session) as { name?: string; email?: string }; setState((current) => ({ ...current, name: profile.name || current.name, email: profile.email || current.email })) } }, [authenticated])
+ useEffect(() => {
+  const checkAuth = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      router.replace('/login')
+      return
+    }
+
+    const profile = {
+      name: session.user.user_metadata?.name as string | undefined,
+      email: session.user.email,
+    }
+
+    setAuthenticated(true)
+
+    const saved = sessionStorage.getItem('taskflow-state')
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Partial<State>
+
+        setState({
+          ...initial,
+          ...parsed,
+          name: profile.name || parsed.name || initial.name,
+          email: profile.email || parsed.email || initial.email,
+          members: parsed.members?.length ? parsed.members : demoMembers,
+          projects: parsed.projects || initial.projects,
+          tasks: parsed.tasks || initial.tasks,
+          labels: parsed.labels || initial.labels,
+          activities: parsed.activities || initial.activities,
+        })
+      } catch {
+        sessionStorage.removeItem('taskflow-state')
+      }
+    } else {
+      setState((current) => ({
+        ...current,
+        name: profile.name || current.name,
+        email: profile.email || current.email,
+      }))
+    }
+
+    hydrated.current = true
+
+    const key = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'k'
+      ) {
+        event.preventDefault()
+        setCommand(true)
+      }
+    }
+
+    addEventListener('keydown', key)
+
+    return () => removeEventListener('keydown', key)
+  }
+
+  checkAuth()
+}, [router])
   useEffect(() => { if (!hydrated.current) return; sessionStorage.setItem('taskflow-state', JSON.stringify(state)); document.documentElement.classList.toggle('dark', state.dark) }, [state])
- const signOut = () => { localStorage.removeItem('taskflow-auth'); sessionStorage.removeItem('taskflow-auth'); router.replace('/login') }
+ const signOut = async () => {
+  await supabase.auth.signOut()
+  router.replace('/login')
+}
  const flash = (text: string) => { setToast(text); setTimeout(() => setToast(''), 2200) }; const patchTask = (id: number, patch: Partial<Task>) => setState((s) => ({ ...s, tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch } : t) }))
  const addTask = (draft: TaskDraft) => { const task: Task = { id: Date.now(), title: draft.title.trim(), description: draft.description.trim(), project: draft.project, status: draft.status, priority: draft.priority, due: draft.due || 'No due date', assignee: draft.assignee || 'AM', labels: draft.labels, subtasks: [], comments: [], favorite: false }; setState((s) => ({ ...s, tasks: [task, ...s.tasks], activities: [`You created “${task.title}” · Just now`, ...s.activities], notifications: s.notifications + 1 })); setQuick(false); setPage('My Tasks'); flash('Task created successfully') }
  if (authenticated !== true) return null
