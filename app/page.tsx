@@ -34,7 +34,15 @@ function Empty({ text }: { text: string }) { return <div className="rounded-lg b
 export default function Page() {
  const router = useRouter(); const [authenticated, setAuthenticated] = useState<boolean | null>(null)
  const [state, setState] = useState<State>(initial); const hydrated = useRef(false); const [page, setPage] = useState('Dashboard'); const [mobile, setMobile] = useState(false); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<number | null>(null); const selected = state.tasks.find((task) => task.id === selectedId) || null; const [quick, setQuick] = useState(false); const [command, setCommand] = useState(false); const [toast, setToast] = useState('')
- useEffect(() => {
+
+ const signOut = async () => {
+  await supabase.auth.signOut()
+  router.replace('/login')
+}
+ 
+useEffect(() => {
+  let cancelled = false
+
   const checkAuth = async () => {
     const {
       data: { session },
@@ -50,28 +58,32 @@ export default function Page() {
       email: session.user.email,
     }
 
-    setAuthenticated(true)
+    const { data, error } = await supabase
+      .from('taskflow_state')
+      .select('state')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
 
-    const saved = sessionStorage.getItem('taskflow-state')
+    if (cancelled) return
 
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Partial<State>
+    if (error) {
+      console.error('Could not load TaskFlow state:', error.message)
+    }
 
-        setState({
-          ...initial,
-          ...parsed,
-          name: profile.name || parsed.name || initial.name,
-          email: profile.email || parsed.email || initial.email,
-          members: parsed.members?.length ? parsed.members : demoMembers,
-          projects: parsed.projects || initial.projects,
-          tasks: parsed.tasks || initial.tasks,
-          labels: parsed.labels || initial.labels,
-          activities: parsed.activities || initial.activities,
-        })
-      } catch {
-        sessionStorage.removeItem('taskflow-state')
-      }
+    if (data?.state) {
+      const parsed = data.state as Partial<State>
+
+      setState({
+        ...initial,
+        ...parsed,
+        name: profile.name || parsed.name || initial.name,
+        email: profile.email || parsed.email || initial.email,
+        members: parsed.members?.length ? parsed.members : demoMembers,
+        projects: parsed.projects || initial.projects,
+        tasks: parsed.tasks || initial.tasks,
+        labels: parsed.labels || initial.labels,
+        activities: parsed.activities || initial.activities,
+      })
     } else {
       setState((current) => ({
         ...current,
@@ -80,13 +92,11 @@ export default function Page() {
       }))
     }
 
+    setAuthenticated(true)
     hydrated.current = true
 
     const key = (event: KeyboardEvent) => {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === 'k'
-      ) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setCommand(true)
       }
@@ -97,13 +107,50 @@ export default function Page() {
     return () => removeEventListener('keydown', key)
   }
 
-  checkAuth()
+  let removeKeyListener: (() => void) | undefined
+
+  checkAuth().then((cleanup) => {
+    removeKeyListener = cleanup
+  })
+
+  return () => {
+    cancelled = true
+    removeKeyListener?.()
+  }
 }, [router])
-  useEffect(() => { if (!hydrated.current) return; sessionStorage.setItem('taskflow-state', JSON.stringify(state)); document.documentElement.classList.toggle('dark', state.dark) }, [state])
- const signOut = async () => {
-  await supabase.auth.signOut()
-  router.replace('/login')
-}
+
+
+useEffect(() => {
+  if (!hydrated.current) return
+
+  document.documentElement.classList.toggle('dark', state.dark)
+
+  const saveState = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) return
+
+    const { error } = await supabase
+      .from('taskflow_state')
+      .upsert(
+        {
+          user_id: session.user.id,
+          state,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
+
+    if (error) {
+      console.error('Could not save TaskFlow state:', error.message)
+    }
+  }
+
+  saveState()
+}, [state])
+
  const flash = (text: string) => { setToast(text); setTimeout(() => setToast(''), 2200) }; const patchTask = (id: number, patch: Partial<Task>) => setState((s) => ({ ...s, tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch } : t) }))
  const addTask = (draft: TaskDraft) => { const task: Task = { id: Date.now(), title: draft.title.trim(), description: draft.description.trim(), project: draft.project, status: draft.status, priority: draft.priority, due: draft.due || 'No due date', assignee: draft.assignee || 'AM', labels: draft.labels, subtasks: [], comments: [], favorite: false }; setState((s) => ({ ...s, tasks: [task, ...s.tasks], activities: [`You created “${task.title}” · Just now`, ...s.activities], notifications: s.notifications + 1 })); setQuick(false); setPage('My Tasks'); flash('Task created successfully') }
  if (authenticated !== true) return null
