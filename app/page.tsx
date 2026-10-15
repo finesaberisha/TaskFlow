@@ -18,7 +18,9 @@ import { Archive, Bell, CalendarDays, Check, ClipboardList, Clock3, Command, Cop
 
 type Status = 'To Do' | 'In Progress' | 'Review' | 'Done'; type Priority = 'Low' | 'Medium' | 'High' | 'Urgent'
 type TeamMember = { id: string; name: string; email: string; role: string }
-type Task = { id: number; title: string; description: string; project: string; projectId?: number; status: Status; priority: Priority; due: string; assignee: string; assigneeId?: string; labels: string[]; subtasks: { id: number; title: string; done: boolean }[]; comments: { id: number; text: string; author: string; authorId?: string }[]; favorite: boolean }
+
+type Task = { id: number; title: string; description: string; project: string; projectId?: number; status: Status; priority: Priority; due: string; assignee: string; assigneeId?: string; labels: string[]; subtasks: { id: number; title: string; done: boolean }[]; comments: { id: number; text: string; author: string; authorId?: string; username?: string; createdAt?: string; resolved?: boolean }[]; favorite: boolean }
+
 type Project = { id: number; name: string; description: string; priority: Priority; status: string; due: string; archived: boolean; favorite: boolean }
 type State = { tasks: Task[]; projects: Project[]; members: TeamMember[]; labels: string[]; activities: string[]; dark: boolean; name: string; email: string; notifications: number }
 type TaskDraft = { title: string; description: string; project: string; assignee: string; status: Status; priority: Priority; due: string; start: string; labels: string[] }
@@ -38,7 +40,7 @@ export default function Page() {
  const signOut = async () => {
   await supabase.auth.signOut()
   router.replace('/login')
-}
+};
  
 useEffect(() => {
   let cancelled = false
@@ -151,7 +153,9 @@ useEffect(() => {
   saveState()
 }, [state])
 
- const flash = (text: string) => { setToast(text); setTimeout(() => setToast(''), 2200) }; const patchTask = (id: number, patch: Partial<Task>) => setState((s) => ({ ...s, tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch } : t) }))
+ const flash = (text: string) => { setToast(text); setTimeout(() => setToast(''), 2200) }; 
+const patchTask = (id: number, patch: Partial<Task>) => setState((s) => ({ ...s, tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch } : t) }))
+
  const addTask = (draft: TaskDraft) => { const task: Task = { id: Date.now(), title: draft.title.trim(), description: draft.description.trim(), project: draft.project, status: draft.status, priority: draft.priority, due: draft.due || 'No due date', assignee: draft.assignee || 'AM', labels: draft.labels, subtasks: [], comments: [], favorite: false }; setState((s) => ({ ...s, tasks: [task, ...s.tasks], activities: [`You created “${task.title}” · Just now`, ...s.activities], notifications: s.notifications + 1 })); setQuick(false); setPage('My Tasks'); flash('Task created successfully') }
  if (authenticated !== true) return null
  const content = page === 'Dashboard' ? <Dashboard state={state} go={setPage} open={(task) => setSelectedId(task.id)} create={() => setQuick(true)} /> : page === 'My Tasks' ? <Tasks state={state} query={query} setQuery={setQuery} update={patchTask} open={(task) => setSelectedId(task.id)} add={() => setQuick(true)} /> : page === 'Projects' ? <Projects state={state} setState={setState} flash={flash} /> : page === 'Team' ? <Team state={state} open={(task) => setSelectedId(task.id)} /> : page === 'Calendar' ? <Calendar state={state} open={(task) => setSelectedId(task.id)} /> : page === 'Settings' ? <SettingsPage state={state} setState={setState} flash={flash} /> : <Notifications state={state} setState={setState} />
@@ -160,7 +164,32 @@ useEffect(() => {
 
 function Dashboard({ state, go, open, create }: { state: State; go: (page: string) => void; open: (task: Task) => void; create: () => void }) { const done = state.tasks.filter((t) => t.status === 'Done').length; const active = state.tasks.length - done; const percent = state.tasks.length ? Math.round(done / state.tasks.length * 100) : 0; const mine = state.tasks.filter((t) => t.assignee === 'AM' && t.status !== 'Done'); return <div className="flex flex-col gap-8"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-sm font-medium text-indigo-600">Tuesday, October 15, 2024</p><h1 className="mt-1 text-3xl font-bold">Good morning, {state.name.split(' ')[0]}</h1><p className="mt-2 text-muted-foreground">Your command center for focused, collaborative work.</p></div><Button onClick={create}><Plus data-icon="inline-start" />Create task</Button></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{([['Total projects', state.projects.length, FolderKanban], ['Active tasks', active, ClipboardList], ['Completed', done, Check], ['Urgent', state.tasks.filter((t) => t.priority === 'Urgent').length, Zap], ['My work', mine.length, Clock3]] as [string, number, React.ComponentType<{ className?: string }>][]).map(([label, value, Icon]) => <Card key={String(label)} onClick={() => go(label === 'Total projects' ? 'Projects' : 'My Tasks')} className="cursor-pointer"><CardContent className="flex items-start justify-between p-5"><div><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-bold">{value as number}</p><p className="mt-2 text-xs text-emerald-600">Live from workspace</p></div><Icon className="rounded-lg bg-muted p-2.5 text-muted-foreground" /></CardContent></Card>)}</div><div className="grid gap-6 xl:grid-cols-2"><Card><CardHeader><CardTitle>Overall completion</CardTitle><p className="mt-1 text-sm text-muted-foreground">Completed vs remaining tasks</p></CardHeader><CardContent><div className="flex items-end justify-between"><span className="text-4xl font-bold">{percent}%</span><span className="text-sm text-muted-foreground">{done} of {state.tasks.length} tasks</span></div><Progress value={percent} className="mt-4 h-3" /><div className="mt-6 grid grid-cols-4 gap-3">{(['To Do', 'In Progress', 'Review', 'Done'] as Status[]).map((status) => <button key={status} className="text-left" onClick={() => go('My Tasks')}><p className="text-xl font-bold">{state.tasks.filter((t) => t.status === status).length}</p><p className="text-xs text-muted-foreground">{status}</p></button>)}</div></CardContent></Card><Card><CardHeader><CardTitle>My Work</CardTitle><p className="mt-1 text-sm text-muted-foreground">Tasks assigned to you</p></CardHeader><CardContent className="flex flex-col gap-2">{mine.length ? mine.map((task) => <button key={task.id} className="flex items-center gap-3 rounded-lg p-2 text-left hover:bg-muted" onClick={() => open(task)}><span className="size-2 rounded-full bg-orange-500" /><span className="flex-1 truncate text-sm">{task.title}</span><Badge className={priorityStyle[task.priority]}>{task.due}</Badge></button>) : <Empty text="No tasks assigned to you" />}</CardContent></Card></div><div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle>Project progress</CardTitle></CardHeader><CardContent className="flex flex-col gap-5">{state.projects.filter((p) => !p.archived).map((project) => { const list = state.tasks.filter((t) => t.project === project.name); const value = list.length ? Math.round(list.filter((t) => t.status === 'Done').length / list.length * 100) : 0; return <button key={project.id} className="text-left" onClick={() => go('My Tasks')}><div className="mb-2 flex justify-between text-sm"><span>{project.name}</span><b>{value}%</b></div><Progress value={value} className="h-2" /></button> })}</CardContent></Card><Card><CardHeader><CardTitle>Recent activity</CardTitle></CardHeader><CardContent className="flex flex-col gap-4">{state.activities.slice(0, 4).map((item) => <div key={item} className="flex gap-3"><Initials value="AM" className="size-8" /><p className="text-sm">{item}</p></div>)}</CardContent></Card></div></div> }
 
-function Tasks({ state, query, setQuery, update, open, add }: { state: State; query: string; setQuery: (value: string) => void; update: (id: number, patch: Partial<Task>) => void; open: (task: Task) => void; add: () => void }) { const [status, setStatus] = useState('All'); const [priority, setPriority] = useState('All'); const visible = useMemo(() => state.tasks.filter((t) => `${t.title} ${t.project} ${t.labels.join(' ')}`.toLowerCase().includes(query.toLowerCase())).filter((t) => status === 'All' || t.status === status).filter((t) => priority === 'All' || t.priority === priority), [state.tasks, query, status, priority]); return <div className="flex flex-col gap-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="text-3xl font-bold">My Tasks</h1><p className="mt-2 text-muted-foreground">{visible.length} results · filter, sort, and manage your work.</p></div><Button onClick={add}><Plus data-icon="inline-start" />New task</Button></div><div className="flex flex-col gap-3 rounded-xl border bg-card p-3 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title, project, or label..." className="pl-9" /></div><Select value={status} onValueChange={(value) => setStatus(value || 'All')}><SelectTrigger className="w-full md:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="All">All statuses</SelectItem>{statuses.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Select value={priority} onValueChange={(value) => setPriority(value || 'All')}><SelectTrigger className="w-full md:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="All">All priorities</SelectItem>{priorities.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Button variant="ghost" onClick={() => { setStatus('All'); setPriority('All'); setQuery('') }}>Clear</Button></div><div className="grid gap-4 overflow-x-auto xl:grid-cols-4">{statuses.map((column) => <div key={column} className="min-h-[390px] min-w-[270px] rounded-xl bg-muted/50 p-3"><div className="mb-3 flex items-center gap-2"><span className="size-2 rounded-full bg-indigo-500" /><b className="text-sm">{column}</b><span className="text-xs text-muted-foreground">{visible.filter((t) => t.status === column).length}</span></div><div className="flex flex-col gap-3">{visible.filter((t) => t.status === column).map((task) => <Card key={task.id}><CardContent className="p-4"><div className="flex items-start gap-2"><button className="flex-1 text-left text-sm font-medium" onClick={() => open(task)}>{task.title}</button><button onClick={() => update(task.id, { favorite: !task.favorite })} aria-label="Favorite"><Star className={`size-4 ${task.favorite ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} /></button></div><p className="mt-2 text-xs text-muted-foreground">{task.project}</p><div className="mt-3 flex flex-wrap gap-1">{task.labels.map((label) => <Badge key={label} variant="outline" className="text-[10px]">{label}</Badge>)}</div><div className="mt-4 flex items-center gap-2"><Badge className={priorityStyle[task.priority]}>{task.priority}</Badge><span className="text-xs text-muted-foreground">{task.due}</span><Initials value={task.assignee} className="ml-auto size-6" /></div>{task.subtasks.length > 0 && <p className="mt-3 text-[11px] text-muted-foreground">{task.subtasks.filter((s) => s.done).length} / {task.subtasks.length} subtasks</p>}<Select value={task.status} onValueChange={(value) => update(task.id, { status: value as Status })}><SelectTrigger className="mt-3 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{statuses.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></CardContent></Card>)}</div></div>)}</div></div> }
+
+function Tasks({ state, query, setQuery, update, open, add }: { state: State; query: string; setQuery: (value: string) => void; update: (id: number, patch: Partial<Task>) => void; open: (task: Task) => void; add: () => void }) {
+  const [status, setStatus] = useState('All');
+  const [priority, setPriority] = useState('All');
+  const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
+
+  const handleDrop = (newStatus: Status) => {
+    if (draggedTaskId === null) return;
+    update(draggedTaskId, { status: newStatus });
+    setDraggedTaskId(null);
+  };
+
+ const visible = useMemo(() => state.tasks.filter((t) => `${t.title} ${t.project} ${t.labels.join(' ')}`.toLowerCase().includes(query.toLowerCase())).filter((t) => status === 'All' || t.status === status).filter((t) => priority === 'All' || t.priority === priority), [state.tasks, query, status, priority]); return <div className="flex flex-col gap-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="text-3xl font-bold">My Tasks</h1><p className="mt-2 text-muted-foreground">{visible.length} results · filter, sort, and manage your work.</p></div><Button onClick={add}><Plus data-icon="inline-start" />New task</Button></div><div className="flex flex-col gap-3 rounded-xl border bg-card p-3 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title, project, or label..." className="pl-9" /></div><Select value={status} onValueChange={(value) => setStatus(value || 'All')}><SelectTrigger className="w-full md:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="All">All statuses</SelectItem>{statuses.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Select value={priority} onValueChange={(value) => setPriority(value || 'All')}><SelectTrigger className="w-full md:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="All">All priorities</SelectItem>{priorities.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Button variant="ghost" onClick={() => { setStatus('All'); setPriority('All'); setQuery('') }}>Clear</Button></div><div className="grid gap-4 overflow-x-auto xl:grid-cols-4">{statuses.map((column) => <div
+  key={column}
+  onDragOver={(event) => event.preventDefault()}
+  onDrop={() => handleDrop(column)}
+  className="min-h-[390px] min-w-[270px] rounded-xl bg-muted/50 p-3"
+><div className="mb-3 flex items-center gap-2"><span className="size-2 rounded-full bg-indigo-500" /><b className="text-sm">{column}</b><span className="text-xs text-muted-foreground">{visible.filter((t) => t.status === column).length}</span></div><div className="flex flex-col gap-3">{visible.filter((t) => t.status === column).map((task) => 
+<Card
+  key={task.id}
+  draggable
+  onDragStart={() => setDraggedTaskId(task.id)}
+  onDragEnd={() => setDraggedTaskId(null)}
+  className={draggedTaskId === task.id ? 'opacity-50' : 'cursor-grab active:cursor-grabbing'}
+>
+<CardContent className="p-4"><div className="flex items-start gap-2"><button className="flex-1 text-left text-sm font-medium" onClick={() => open(task)}>{task.title}</button><button onClick={() => update(task.id, { favorite: !task.favorite })} aria-label="Favorite"><Star className={`size-4 ${task.favorite ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} /></button></div><p className="mt-2 text-xs text-muted-foreground">{task.project}</p><div className="mt-3 flex flex-wrap gap-1">{task.labels.map((label) => <Badge key={label} variant="outline" className="text-[10px]">{label}</Badge>)}</div><div className="mt-4 flex items-center gap-2"><Badge className={priorityStyle[task.priority]}>{task.priority}</Badge><span className="text-xs text-muted-foreground">{task.due}</span><Initials value={task.assignee} className="ml-auto size-6" /></div>{task.subtasks.length > 0 && <p className="mt-3 text-[11px] text-muted-foreground">{task.subtasks.filter((s) => s.done).length} / {task.subtasks.length} subtasks</p>}<Select value={task.status} onValueChange={(value) => update(task.id, { status: value as Status })}><SelectTrigger className="mt-3 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{statuses.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></CardContent></Card>)}</div></div>)}</div></div> }
 
 function Projects({ state, setState, flash }: { state: State; setState: React.Dispatch<React.SetStateAction<State>>; flash: (text: string) => void }) { const [archived, setArchived] = useState(false); const [archiveTarget, setArchiveTarget] = useState<Project | null>(null); const [deleteTarget, setDeleteTarget] = useState<Project | null>(null); const list = state.projects.filter((p) => p.archived === archived); const archive = () => { if (!archiveTarget) return; setState((s) => ({ ...s, projects: s.projects.map((p) => p.id === archiveTarget.id ? { ...p, archived: true, favorite: false } : p), activities: [`You archived “${archiveTarget.name}” · Just now`, ...s.activities] })); setArchiveTarget(null); flash('Project archived successfully') }; const restore = (project: Project) => { setState((s) => ({ ...s, projects: s.projects.map((p) => p.id === project.id ? { ...p, archived: false } : p), activities: [`You restored “${project.name}” · Just now`, ...s.activities] })); flash('Project restored successfully') }; const duplicate = (project: Project) => { setState((s) => ({ ...s, projects: [{ ...project, id: Date.now(), name: `${project.name} copy`, archived: false, favorite: false }, ...s.projects] })); flash('Project duplicated') }; const deleteProject = () => { if (!deleteTarget) return; setState((s) => ({ ...s, projects: s.projects.filter((p) => p.id !== deleteTarget.id) })); setDeleteTarget(null); flash('Project deleted permanently') }; return <div className="flex flex-col gap-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="text-3xl font-bold">Projects</h1><p className="mt-2 text-muted-foreground">Manage priorities, progress, and project archives.</p></div><Button onClick={() => { const project = { id: Date.now(), name: 'New project', description: 'A new project ready for your team.', priority: 'Medium' as Priority, status: 'Planning', due: 'Dec 01, 2024', archived: false, favorite: false }; setState((s) => ({ ...s, projects: [project, ...s.projects] })); flash('Project created') }}><Plus data-icon="inline-start" />New project</Button></div><Button variant="outline" className="self-start" onClick={() => setArchived(!archived)}>{archived ? 'View active projects' : 'View archived projects'}</Button>{list.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{list.map((project) => { const list = state.tasks.filter((t) => t.project === project.name); const progress = list.length ? Math.round(list.filter((t) => t.status === 'Done').length / list.length * 100) : 0; return <Card key={project.id}><CardHeader><div className="flex items-start justify-between"><div className="grid size-10 place-items-center rounded-lg bg-indigo-500 text-white"><FolderKanban className="size-5" /></div><DropdownMenu><DropdownMenuTrigger><Button variant="ghost" size="icon" aria-label={`Actions for ${project.name}`} onClick={(event) => event.stopPropagation()}><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => flash(`Viewing ${project.name}`)}><FolderKanban />View Project</DropdownMenuItem><DropdownMenuItem onClick={() => duplicate(project)}><Copy />Duplicate Project</DropdownMenuItem><DropdownMenuItem onClick={() => setState((s) => ({ ...s, projects: s.projects.map((p) => p.id === project.id ? { ...p, favorite: !p.favorite } : p) }))}><Star />{project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}</DropdownMenuItem><DropdownMenuSeparator />{archived ? <DropdownMenuItem onClick={() => restore(project)}><Archive />Restore Project</DropdownMenuItem> : <DropdownMenuItem onClick={() => { if (window.confirm('Archive this project?\n\nThe project will be moved to Archived Projects. You can restore it later.')) { setState((s) => ({ ...s, projects: s.projects.map((p) => p.id === project.id ? { ...p, archived: true, favorite: false } : p), activities: [`You archived “${project.name}” · Just now`, ...s.activities] })); flash('Project archived successfully') } }}><Archive />Archive Project</DropdownMenuItem>}<DropdownMenuItem className="text-destructive" onClick={() => { if (window.confirm('Delete this project permanently?\n\nThis cannot be undone.')) { setState((s) => ({ ...s, projects: s.projects.filter((p) => p.id !== project.id) })); flash('Project deleted permanently') } }}><Trash2 />Delete Project</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div><CardTitle className="pt-2 text-lg">{project.name}</CardTitle><p className="text-sm text-muted-foreground">{project.description}</p></CardHeader><CardContent><div className="flex justify-between"><Badge className={priorityStyle[project.priority]}>{project.priority}</Badge><span className="text-xs text-muted-foreground">{project.due}</span></div><div className="mt-5 flex justify-between text-xs"><span>Progress</span><b>{progress}%</b></div><Progress value={progress} className="mt-2 h-2" /></CardContent></Card> })}</div> : <Empty text="No projects in this view" />}</div> }
 function Team({ state, open }: { state: State; open: (task: Task) => void }) { return <div className="flex flex-col gap-7"><div><h1 className="text-3xl font-bold">Team workload</h1><p className="mt-2 text-muted-foreground">See how work is distributed across your team.</p></div><div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{state.members.map((member) => { const tasks = state.tasks.filter((t) => (t.assigneeId || t.assignee) === member.id); const done = tasks.filter((t) => t.status === 'Done').length; return <Card key={member.id}><CardHeader><div className="flex items-center gap-3"><Initials value={member.name.split(' ').map((part) => part[0]).join('')} className="size-11" /><div><CardTitle className="text-base">{member.id === 'AM' ? state.name : member.name}</CardTitle><p className="text-xs text-muted-foreground">{tasks.length} assigned · {done} complete</p></div></div></CardHeader><CardContent><Progress value={tasks.length ? done / tasks.length * 100 : 0} /><div className="mt-4 flex flex-col gap-2">{tasks.slice(0, 3).map((task) => <button key={task.id} onClick={() => open(task)} className="truncate text-left text-xs text-muted-foreground hover:text-foreground">· {task.title}</button>)}</div></CardContent></Card> })}</div></div> }
@@ -168,5 +197,166 @@ function Calendar({ state, open }: { state: State; open: (task: Task) => void })
 function Notifications({ state, setState }: { state: State; setState: React.Dispatch<React.SetStateAction<State>> }) { return <div className="mx-auto flex max-w-3xl flex-col gap-7"><div className="flex items-end justify-between"><div><h1 className="text-3xl font-bold">Notifications</h1><p className="mt-2 text-muted-foreground">Updates from your workspace.</p></div><Button variant="outline" onClick={() => setState((s) => ({ ...s, notifications: 0 }))}>Mark all read</Button></div><Card><CardContent className="p-6">{state.notifications ? <p className="text-sm">You have {state.notifications} unread workspace updates.</p> : <Empty text="No unread notifications" />}</CardContent></Card></div> }
 function SettingsPage({ state, setState, flash }: { state: State; setState: React.Dispatch<React.SetStateAction<State>>; flash: (text: string) => void }) { const [name, setName] = useState(state.name); const [email, setEmail] = useState(state.email); return <div className="flex flex-col gap-7"><div><h1 className="text-3xl font-bold">Settings</h1><p className="mt-2 text-muted-foreground">Manage your profile and workspace preferences.</p></div><Card><CardHeader><CardTitle>Profile settings</CardTitle></CardHeader><CardContent className="flex flex-col gap-4"><div className="flex items-center gap-4"><Initials value={name.split(' ').map((x) => x[0]).join('')} className="size-16" /><p className="text-sm text-muted-foreground">Your profile appears across the workspace.</p></div><Input value={name} onChange={(e) => setName(e.target.value)} aria-label="Full name" /><Input value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email address" /><div className="flex items-center justify-between rounded-lg border p-4"><div><p className="font-medium">Dark mode</p><p className="text-sm text-muted-foreground">Use a darker palette across the workspace.</p></div><input type="checkbox" checked={state.dark} onChange={(e) => setState((s) => ({ ...s, dark: e.target.checked }))} /></div><Button onClick={() => { setState((s) => ({ ...s, name, email })); flash('Profile changes saved') }}>Save changes</Button></CardContent></Card></div> }
 function Quick({ open, close, add, state }: { open: boolean; close: () => void; add: (draft: TaskDraft) => void; state: State }) { const [draft, setDraft] = useState<TaskDraft>(emptyDraft()); const [error, setError] = useState(''); useEffect(() => { if (open) { setDraft(emptyDraft(state.projects[0]?.name || '')); setError('') } }, [open, state.projects]); const update = (patch: Partial<TaskDraft>) => setDraft((current) => ({ ...current, ...patch })); const submit = () => { if (!draft.title.trim()) { setError('Please enter a task title.'); return } if (!draft.project) { setError('Please choose a project.'); return } add(draft) }; return <Dialog open={open} onOpenChange={(value) => !value && close()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Create new task</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="flex flex-col gap-2 sm:col-span-2"><label htmlFor="task-title" className="text-sm font-medium">Task title <span className="text-destructive">*</span></label><Input id="task-title" value={draft.title} onChange={(event) => update({ title: event.target.value })} placeholder="e.g. Design homepage" autoFocus /></div><div className="flex flex-col gap-2 sm:col-span-2"><label htmlFor="task-description" className="text-sm font-medium">Description</label><Textarea id="task-description" value={draft.description} onChange={(event) => update({ description: event.target.value })} placeholder="Describe what needs to be done..." /></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Project <span className="text-destructive">*</span></label><Select value={draft.project} onValueChange={(value) => update({ project: value ?? '' })}><SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger><SelectContent>{state.projects.filter((project) => !project.archived).map((project) => <SelectItem key={project.id} value={project.name}>{project.name}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Assignee</label><Select value={draft.assignee || 'unassigned'} onValueChange={(value) => update({ assignee: value === 'unassigned' ? '' : (value ?? '') })}><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger><SelectContent><SelectItem value="unassigned">Unassigned</SelectItem>{state.members.map((member) => <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Status</label><Select value={draft.status} onValueChange={(value) => update({ status: value as Status })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Priority</label><Select value={draft.priority} onValueChange={(value) => update({ priority: value as Priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{priorities.map((priority) => <SelectItem key={priority} value={priority}>{priority}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label htmlFor="task-due" className="text-sm font-medium">Due date</label><Input id="task-due" type="date" value={draft.due} onChange={(event) => update({ due: event.target.value })} /></div><div className="flex flex-col gap-2"><label htmlFor="task-start" className="text-sm font-medium">Start date</label><Input id="task-start" type="date" value={draft.start} onChange={(event) => update({ start: event.target.value })} /></div></div><div className="flex flex-col gap-2 sm:col-span-2"><span className="text-sm font-medium">Labels</span><div className="flex flex-wrap gap-2">{state.labels.map((label) => <Button key={label} type="button" variant={draft.labels.includes(label) ? 'default' : 'outline'} size="sm" onClick={() => update({ labels: draft.labels.includes(label) ? draft.labels.filter((item) => item !== label) : [...draft.labels, label] })}>{label}</Button>)}</div></div>{error && <p className="text-sm text-destructive" role="alert">{error}</p>}<div className="flex justify-end gap-2"><Button variant="outline" onClick={close}>Cancel</Button><Button onClick={submit}>Create Task</Button></div></DialogContent></Dialog> }
-function Detail({ task, close, state, update, setState, flash }: { task: Task | null; close: () => void; state: State; update: (id: number, patch: Partial<Task>) => void; setState: React.Dispatch<React.SetStateAction<State>>; flash: (text: string) => void }) { const [comment, setComment] = useState(''); if (!task) return null; const current = state.tasks.find((x) => x.id === task.id) || task; return <Dialog open={!!task} onOpenChange={(v) => !v && close()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Task details</DialogTitle></DialogHeader><div className="flex flex-col gap-5"><Input value={current.title} onChange={(e) => update(current.id, { title: e.target.value })} className="text-xl font-semibold" /><Textarea value={current.description} onChange={(e) => update(current.id, { description: e.target.value })} /><div className="grid gap-3 sm:grid-cols-2"><Select value={current.status} onValueChange={(v) => update(current.id, { status: v as Status })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{statuses.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Select value={current.priority} onValueChange={(v) => update(current.id, { priority: v as Priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{priorities.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div><div><div className="mb-2 flex justify-between"><b>Subtasks</b><span className="text-xs text-muted-foreground">{current.subtasks.filter((x) => x.done).length} / {current.subtasks.length}</span></div>{current.subtasks.map((sub) => <label key={sub.id} className="flex gap-2 border-b p-2 text-sm"><input type="checkbox" checked={sub.done} onChange={(e) => update(current.id, { subtasks: current.subtasks.map((x) => x.id === sub.id ? { ...x, done: e.target.checked } : x) })} />{sub.title}</label>)}</div><div><b>Labels</b><div className="mt-2 flex flex-wrap gap-2">{state.labels.map((label) => <button key={label} onClick={() => update(current.id, { labels: current.labels.includes(label) ? current.labels.filter((x) => x !== label) : [...current.labels, label] })}><Badge variant={current.labels.includes(label) ? 'default' : 'outline'}><Tag className="mr-1 size-3" />{label}</Badge></button>)}</div></div><Separator /><div><b>Comments</b>{current.comments.map((c) => <div key={c.id} className="mt-2 rounded bg-muted p-3 text-sm"><b>{c.author}</b><p>{c.text}</p></div>)}<div className="mt-3 flex gap-2"><Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment" /><Button onClick={() => { if (!comment.trim()) return; update(current.id, { comments: [...current.comments, { id: Date.now(), author: 'AM', text: comment }] }); setComment(''); flash('Comment added') }}>Comment</Button></div></div><Button variant="destructive" onClick={() => { setState((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== current.id) })); close(); flash('Task deleted') }}><Trash2 data-icon="inline-start" />Delete task</Button></div></DialogContent></Dialog> }
+function Detail({ task, close, state, update, setState, flash }: { task: Task | null; close: () => void; state: State; update: (id: number, patch: Partial<Task>) => void; setState: React.Dispatch<React.SetStateAction<State>>; flash: (text: string) => void }) { const [comment, setComment] = useState('');
+  const [draft, setDraft] = useState<Task | null>(null); 
+  
+useEffect(() => {
+  if (task) {
+    setDraft({
+      ...task,
+      subtasks: task.subtasks.map((sub) => ({ ...sub })),
+      labels: [...task.labels],
+      comments: task.comments.map((comment) => ({ ...comment })),
+    });
+  } else {
+    setDraft(null);
+  }
+}, [task?.id]);
+
+  if (!task) return null; const current = draft ?? state.tasks.find((x) => x.id === task.id) ?? task; return <Dialog open={!!task} onOpenChange={(v) => !v && close()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Task details</DialogTitle></DialogHeader><div className="flex flex-col gap-5"><Input
+  value={current.title}
+  onChange={(e) =>
+    setDraft((prev) => ({
+      ...(prev ?? current),
+      title: e.target.value,
+    }))
+  }
+  className="text-xl font-semibold"
+/><Textarea
+  value={current.description}
+  onChange={(e) =>
+    setDraft((prev) => ({
+      ...(prev ?? current),
+      description: e.target.value,
+    }))
+  }
+/><div className="grid gap-3 sm:grid-cols-2"><Select
+  value={current.status}
+  onValueChange={(v) =>
+    setDraft((prev) => ({
+      ...(prev ?? current),
+      status: v as Status,
+    }))
+  }
+><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{statuses.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select><Select
+  value={current.priority}
+  onValueChange={(v) =>
+    setDraft((prev) => ({
+      ...(prev ?? current),
+      priority: v as Priority,
+    }))
+  }
+><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{priorities.map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div><div><div className="mb-2 flex justify-between"><b>Subtasks</b><span className="text-xs text-muted-foreground">{current.subtasks.filter((x) => x.done).length} / {current.subtasks.length}</span></div>{current.subtasks.map((sub) => <label key={sub.id} className="flex gap-2 border-b p-2 text-sm"><input type="checkbox" checked={sub.done} onChange={(e) =>
+  setDraft((prev) => ({
+    ...(prev ?? current),
+    subtasks: current.subtasks.map((x) =>
+      x.id === sub.id ? { ...x, done: e.target.checked } : x
+    ),
+  }))
+}/>{sub.title}</label>)}</div><div><b>Labels</b><div className="mt-2 flex flex-wrap gap-2">{state.labels.map((label) => <button key={label} onClick={() =>
+  setDraft((prev) => ({
+    ...(prev ?? current),
+    labels: current.labels.includes(label)
+      ? current.labels.filter((x) => x !== label)
+      : [...current.labels, label],
+  }))
+}><Badge variant={current.labels.includes(label) ? 'default' : 'outline'}><Tag className="mr-1 size-3" />{label}</Badge></button>)}</div></div><Separator /><div><b>Comments</b>
+{current.comments.map((c) => (
+  <div
+    key={c.id}
+    className={`mt-2 rounded-lg border p-3 text-sm ${c.resolved ? 'opacity-60' : ''}`}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <b>{c.author}</b>
+        <p className="text-xs text-muted-foreground">
+          @{c.username || 'user'}
+          {c.createdAt && ` · ${new Date(c.createdAt).toLocaleString()}`}
+        </p>
+      </div>
+      <Button
+        type="button"
+        size="icon"
+        variant={c.resolved ? 'secondary' : 'ghost'}
+        aria-label={c.resolved ? 'Reopen comment' : 'Resolve comment'}
+        title={c.resolved ? 'Reopen comment' : 'Resolve comment'}
+        onClick={() =>
+          setDraft((prev) => {
+            const base = prev ?? current;
+            return {
+              ...base,
+              comments: base.comments.map((item) =>
+                item.id === c.id
+                  ? { ...item, resolved: !item.resolved }
+                  : item
+              ),
+            };
+          })
+        }
+      >
+        <Check className="size-4" />
+      </Button>
+    </div>
+    <p className={`mt-2 ${c.resolved ? 'line-through' : ''}`}>{c.text}</p>
+    {c.resolved && (
+      <p className="mt-2 text-xs text-emerald-600">Resolved</p>
+    )}
+  </div>
+))}
+<div className="mt-3 flex gap-2"><Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment" />
+<Button onClick={() => {
+  if (!comment.trim()) return;
+  setDraft((prev) => ({
+    ...(prev ?? current),
+    comments: [
+      ...(prev ?? current).comments,
+      {
+  id: Date.now(),
+  author: state.name,
+  username: state.email.split('@')[0],
+  createdAt: new Date().toISOString(),
+  resolved: false,
+  text: comment.trim(),
+},
+    ],
+  }));
+  setComment('');
+}}>Comment</Button>
+</div></div>
+<div className="flex flex-wrap items-center justify-between gap-3">
+  <Button
+    variant="destructive"
+    onClick={() => {
+      setState((s) => ({
+        ...s,
+        tasks: s.tasks.filter((x) => x.id !== current.id),
+      }));
+      close();
+      flash('Task deleted');
+    }}
+  >
+    <Trash2 data-icon="inline-start" />
+    Delete task
+  </Button>
+
+  <div className="flex gap-2">
+    <Button
+      variant="outline"
+      onClick={close}
+    >
+      Cancel
+    </Button>
+    <Button
+      onClick={() => {
+        if (!draft) return;
+        update(current.id, draft);
+        close();
+        flash('Task changes saved');
+      }}
+    >
+      Save Changes
+    </Button>
+  </div>
+</div>
+</div></DialogContent></Dialog> }
 
