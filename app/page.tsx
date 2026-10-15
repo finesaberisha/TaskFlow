@@ -198,6 +198,8 @@ function Notifications({ state, setState }: { state: State; setState: React.Disp
 function SettingsPage({ state, setState, flash }: { state: State; setState: React.Dispatch<React.SetStateAction<State>>; flash: (text: string) => void }) { const [name, setName] = useState(state.name); const [email, setEmail] = useState(state.email); return <div className="flex flex-col gap-7"><div><h1 className="text-3xl font-bold">Settings</h1><p className="mt-2 text-muted-foreground">Manage your profile and workspace preferences.</p></div><Card><CardHeader><CardTitle>Profile settings</CardTitle></CardHeader><CardContent className="flex flex-col gap-4"><div className="flex items-center gap-4"><Initials value={name.split(' ').map((x) => x[0]).join('')} className="size-16" /><p className="text-sm text-muted-foreground">Your profile appears across the workspace.</p></div><Input value={name} onChange={(e) => setName(e.target.value)} aria-label="Full name" /><Input value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email address" /><div className="flex items-center justify-between rounded-lg border p-4"><div><p className="font-medium">Dark mode</p><p className="text-sm text-muted-foreground">Use a darker palette across the workspace.</p></div><input type="checkbox" checked={state.dark} onChange={(e) => setState((s) => ({ ...s, dark: e.target.checked }))} /></div><Button onClick={() => { setState((s) => ({ ...s, name, email })); flash('Profile changes saved') }}>Save changes</Button></CardContent></Card></div> }
 function Quick({ open, close, add, state }: { open: boolean; close: () => void; add: (draft: TaskDraft) => void; state: State }) { const [draft, setDraft] = useState<TaskDraft>(emptyDraft()); const [error, setError] = useState(''); useEffect(() => { if (open) { setDraft(emptyDraft(state.projects[0]?.name || '')); setError('') } }, [open, state.projects]); const update = (patch: Partial<TaskDraft>) => setDraft((current) => ({ ...current, ...patch })); const submit = () => { if (!draft.title.trim()) { setError('Please enter a task title.'); return } if (!draft.project) { setError('Please choose a project.'); return } add(draft) }; return <Dialog open={open} onOpenChange={(value) => !value && close()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Create new task</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="flex flex-col gap-2 sm:col-span-2"><label htmlFor="task-title" className="text-sm font-medium">Task title <span className="text-destructive">*</span></label><Input id="task-title" value={draft.title} onChange={(event) => update({ title: event.target.value })} placeholder="e.g. Design homepage" autoFocus /></div><div className="flex flex-col gap-2 sm:col-span-2"><label htmlFor="task-description" className="text-sm font-medium">Description</label><Textarea id="task-description" value={draft.description} onChange={(event) => update({ description: event.target.value })} placeholder="Describe what needs to be done..." /></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Project <span className="text-destructive">*</span></label><Select value={draft.project} onValueChange={(value) => update({ project: value ?? '' })}><SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger><SelectContent>{state.projects.filter((project) => !project.archived).map((project) => <SelectItem key={project.id} value={project.name}>{project.name}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Assignee</label><Select value={draft.assignee || 'unassigned'} onValueChange={(value) => update({ assignee: value === 'unassigned' ? '' : (value ?? '') })}><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger><SelectContent><SelectItem value="unassigned">Unassigned</SelectItem>{state.members.map((member) => <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Status</label><Select value={draft.status} onValueChange={(value) => update({ status: value as Status })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label className="text-sm font-medium">Priority</label><Select value={draft.priority} onValueChange={(value) => update({ priority: value as Priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{priorities.map((priority) => <SelectItem key={priority} value={priority}>{priority}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-col gap-2"><label htmlFor="task-due" className="text-sm font-medium">Due date</label><Input id="task-due" type="date" value={draft.due} onChange={(event) => update({ due: event.target.value })} /></div><div className="flex flex-col gap-2"><label htmlFor="task-start" className="text-sm font-medium">Start date</label><Input id="task-start" type="date" value={draft.start} onChange={(event) => update({ start: event.target.value })} /></div></div><div className="flex flex-col gap-2 sm:col-span-2"><span className="text-sm font-medium">Labels</span><div className="flex flex-wrap gap-2">{state.labels.map((label) => <Button key={label} type="button" variant={draft.labels.includes(label) ? 'default' : 'outline'} size="sm" onClick={() => update({ labels: draft.labels.includes(label) ? draft.labels.filter((item) => item !== label) : [...draft.labels, label] })}>{label}</Button>)}</div></div>{error && <p className="text-sm text-destructive" role="alert">{error}</p>}<div className="flex justify-end gap-2"><Button variant="outline" onClick={close}>Cancel</Button><Button onClick={submit}>Create Task</Button></div></DialogContent></Dialog> }
 function Detail({ task, close, state, update, setState, flash }: { task: Task | null; close: () => void; state: State; update: (id: number, patch: Partial<Task>) => void; setState: React.Dispatch<React.SetStateAction<State>>; flash: (text: string) => void }) { const [comment, setComment] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [draft, setDraft] = useState<Task | null>(null); 
   
 useEffect(() => {
@@ -213,7 +215,7 @@ useEffect(() => {
   }
 }, [task?.id]);
 
-  if (!task) return null; const current = draft ?? state.tasks.find((x) => x.id === task.id) ?? task; return <Dialog open={!!task} onOpenChange={(v) => !v && close()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Task details</DialogTitle></DialogHeader><div className="flex flex-col gap-5"><Input
+  if (!task) return null; const current = draft ?? state.tasks.find((x) => x.id === task.id) ?? task; return <Dialog open={!!task} onOpenChange={(v) => !v && setConfirmClose(true)}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Task details</DialogTitle></DialogHeader><div className="flex flex-col gap-5"><Input
   value={current.title}
   onChange={(e) =>
     setDraft((prev) => ({
@@ -326,14 +328,7 @@ useEffect(() => {
 <div className="flex flex-wrap items-center justify-between gap-3">
   <Button
     variant="destructive"
-    onClick={() => {
-      setState((s) => ({
-        ...s,
-        tasks: s.tasks.filter((x) => x.id !== current.id),
-      }));
-      close();
-      flash('Task deleted');
-    }}
+    onClick={() => setConfirmDelete(true)}
   >
     <Trash2 data-icon="inline-start" />
     Delete task
@@ -341,11 +336,11 @@ useEffect(() => {
 
   <div className="flex gap-2">
     <Button
-      variant="outline"
-      onClick={close}
-    >
-      Cancel
-    </Button>
+  variant="outline"
+  onClick={() => setConfirmClose(true)}
+>
+  Cancel
+</Button>
     <Button
       onClick={() => {
         if (!draft) return;
@@ -357,6 +352,58 @@ useEffect(() => {
       Save Changes
     </Button>
   </div>
-</div>
-</div></DialogContent></Dialog> }
+
+</div></div>
+<AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+      <AlertDialogDescription>
+        This will permanently delete this task. This action cannot be undone.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onClick={() => {
+          setState((s) => ({
+            ...s,
+            tasks: s.tasks.filter((x) => x.id !== current.id),
+          }));
+          close();
+          flash('Task deleted');
+        }}
+      >
+        Delete task
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  
+  </AlertDialogContent>
+</AlertDialog>
+
+<AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Discard your changes?</AlertDialogTitle>
+      <AlertDialogDescription>
+        Your unsaved changes will be lost. Are you sure you want to close this task?
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Keep editing</AlertDialogCancel>
+      <AlertDialogAction
+        onClick={() => {
+          setConfirmClose(false);
+          close();
+        }}
+      >
+        Discard changes
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+</DialogContent></Dialog>
+}
+
 
