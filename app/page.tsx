@@ -36,7 +36,8 @@ function Empty({ text }: { text: string }) { return <div className="rounded-lg b
 export default function Page() {
  const router = useRouter(); const [authenticated, setAuthenticated] = useState<boolean | null>(null)
  const [state, setState] = useState<State>(initial); const hydrated = useRef(false); const [page, setPage] = useState('Dashboard'); const [mobile, setMobile] = useState(false); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<number | null>(null); const selected = state.tasks.find((task) => task.id === selectedId) || null; const [quick, setQuick] = useState(false); const [command, setCommand] = useState(false); const [toast, setToast] = useState('')
-
+ const [showInactivityWarning, setShowInactivityWarning] = useState(false)
+ 
  const signOut = async () => {
   await supabase.auth.signOut()
   router.replace('/login')
@@ -123,6 +124,54 @@ useEffect(() => {
 
 
 useEffect(() => {
+  if (!authenticated) return
+
+  const WARNING_AFTER = 115 * 60 * 1000
+  const LOGOUT_AFTER = 120 * 60 * 1000
+  const ACTIVITY_KEY = 'taskflow-last-activity'
+
+  const recordActivity = () => {
+    localStorage.setItem(ACTIVITY_KEY, String(Date.now()))
+    setShowInactivityWarning(false)
+  }
+
+  const checkInactivity = async () => {
+    const lastActivity = Number(localStorage.getItem(ACTIVITY_KEY)) || Date.now()
+    const inactiveFor = Date.now() - lastActivity
+
+    if (inactiveFor >= LOGOUT_AFTER) {
+      await supabase.auth.signOut()
+      router.replace('/login')
+      return
+    }
+
+    setShowInactivityWarning(inactiveFor >= WARNING_AFTER)
+  }
+
+  if (!localStorage.getItem(ACTIVITY_KEY)) {
+    recordActivity()
+  }
+
+  const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart']
+
+  activityEvents.forEach((event) =>
+    window.addEventListener(event, recordActivity)
+  )
+
+  const interval = window.setInterval(checkInactivity, 10000)
+
+  checkInactivity()
+
+  return () => {
+    activityEvents.forEach((event) =>
+      window.removeEventListener(event, recordActivity)
+    )
+    window.clearInterval(interval)
+  }
+}, [authenticated, router])
+
+
+useEffect(() => {
   if (!hydrated.current) return
 
   document.documentElement.classList.toggle('dark', state.dark)
@@ -159,7 +208,32 @@ const patchTask = (id: number, patch: Partial<Task>) => setState((s) => ({ ...s,
  const addTask = (draft: TaskDraft) => { const task: Task = { id: Date.now(), title: draft.title.trim(), description: draft.description.trim(), project: draft.project, status: draft.status, priority: draft.priority, due: draft.due || 'No due date', assignee: draft.assignee || 'AM', labels: draft.labels, subtasks: [], comments: [], favorite: false }; setState((s) => ({ ...s, tasks: [task, ...s.tasks], activities: [`You created “${task.title}” · Just now`, ...s.activities], notifications: s.notifications + 1 })); setQuick(false); setPage('My Tasks'); flash('Task created successfully') }
  if (authenticated !== true) return null
  const content = page === 'Dashboard' ? <Dashboard state={state} go={setPage} open={(task) => setSelectedId(task.id)} create={() => setQuick(true)} /> : page === 'My Tasks' ? <Tasks state={state} query={query} setQuery={setQuery} update={patchTask} open={(task) => setSelectedId(task.id)} add={() => setQuick(true)} /> : page === 'Projects' ? <Projects state={state} setState={setState} flash={flash} /> : page === 'Team' ? <Team state={state} open={(task) => setSelectedId(task.id)} /> : page === 'Calendar' ? <Calendar state={state} open={(task) => setSelectedId(task.id)} /> : page === 'Settings' ? <SettingsPage state={state} setState={setState} flash={flash} /> : <Notifications state={state} setState={setState} />
- return <div className={state.dark ? 'dark' : ''}><div className="tf-app min-h-screen text-foreground"><aside className={`tf-sidebar fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r p-4 shadow-xl transition-transform md:translate-x-0 ${mobile ? 'translate-x-0' : '-translate-x-full'}`}><div className="flex items-center justify-between"><Logo /><Button size="icon" variant="ghost" className="md:hidden" onClick={() => setMobile(false)}><X /></Button></div><p className="mt-2 px-3 text-[11px] font-medium text-slate-500">Project Management</p><div className="mt-8 mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Workspace</div><nav className="flex flex-col gap-1">{([['Dashboard', LayoutDashboard], ['Projects', FolderKanban], ['My Tasks', ClipboardList], ['Team', Users], ['Calendar', CalendarDays], ['Notifications', Bell], ['Settings', Settings]] as [string, React.ComponentType<{ className?: string }>][]).map(([name, Icon]) => <Button key={String(name)} variant={page === name ? 'secondary' : 'ghost'} className={`h-10 justify-start gap-3 rounded-lg ${page === name ? 'bg-indigo-50 font-semibold text-indigo-700 shadow-none dark:bg-indigo-950/40 dark:text-indigo-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} onClick={() => { setPage(String(name)); setMobile(false) }}><Icon data-icon="inline-start" />{name}{name === 'Notifications' && state.notifications > 0 && <Badge className="ml-auto">{state.notifications}</Badge>}</Button>)}</nav><div className="mt-auto flex flex-col gap-3"><div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3"><Initials value={state.name.split(' ').map((part) => part[0]).join('')} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-100">{state.name}</p><p className="truncate text-xs text-slate-500">{state.email}</p></div><DropdownMenu><DropdownMenuTrigger><Button variant="ghost" size="icon" aria-label="Open profile menu"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => setPage('Settings')}>Profile</DropdownMenuItem><DropdownMenuItem onClick={() => setPage('Settings')}>Settings</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={signOut}>Sign Out</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div><Card className="border-0 bg-indigo-50 shadow-none"><CardContent className="p-4"><p className="text-sm font-semibold">Need a hand?</p><p className="mt-1 text-xs text-muted-foreground">Press ⌘ K to jump anywhere.</p></CardContent></Card></div></aside><main className="min-h-screen md:pl-64"><header className="tf-header sticky top-0 z-20 flex h-[4.5rem] items-center justify-between border-b px-4 backdrop-blur-xl sm:px-8"><div className="flex items-center gap-3"><Button size="icon" variant="ghost" className="md:hidden" onClick={() => setMobile(true)}><Menu /></Button><button className="hidden items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground md:flex" onClick={() => setCommand(true)}><Search className="size-4" />Search anything <kbd className="ml-8 rounded border bg-background px-1.5 text-[10px]">⌘ K</kbd></button></div><div className="flex items-center gap-3"><Button size="icon" variant="ghost" onClick={() => setPage('Notifications')}><Bell /></Button><Button size="sm" onClick={() => setQuick(true)}><Plus data-icon="inline-start" />Create</Button><button onClick={() => setPage('Settings')}><Initials value={state.name.split(' ').map((x) => x[0]).join('')} /></button></div></header><section className="mx-auto max-w-[1600px] p-4 sm:p-8">{content}</section></main>{toast && <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-foreground px-4 py-3 text-sm text-background shadow-lg">{toast}</div>}<Quick open={quick} close={() => setQuick(false)} add={addTask} state={state} /><Detail task={selected} close={() => setSelectedId(null)} state={state} update={patchTask} setState={setState} flash={flash} /><Dialog open={command} onOpenChange={setCommand}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><Command className="size-5" />Command palette</DialogTitle></DialogHeader><div className="flex flex-col gap-1">{['Dashboard', 'Projects', 'My Tasks', 'Team', 'Calendar', 'Notifications', 'Settings'].map((item) => <button key={item} className="rounded-lg p-3 text-left hover:bg-muted" onClick={() => { setPage(item); setCommand(false) }}>{item}</button>)}<button className="rounded-lg p-3 text-left hover:bg-muted" onClick={() => setState((s) => ({ ...s, dark: !s.dark }))}>Toggle dark mode</button><button className="rounded-lg p-3 text-left hover:bg-muted" onClick={() => { setQuick(true); setCommand(false) }}>Create task</button></div></DialogContent></Dialog></div></div>
+ return <div className={state.dark ? 'dark' : ''}><div className="tf-app min-h-screen text-foreground"><aside className={`tf-sidebar fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r p-4 shadow-xl transition-transform md:translate-x-0 ${mobile ? 'translate-x-0' : '-translate-x-full'}`}><div className="flex items-center justify-between"><Logo /><Button size="icon" variant="ghost" className="md:hidden" onClick={() => setMobile(false)}><X /></Button></div><p className="mt-2 px-3 text-[11px] font-medium text-slate-500">Project Management</p><div className="mt-8 mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Workspace</div><nav className="flex flex-col gap-1">{([['Dashboard', LayoutDashboard], ['Projects', FolderKanban], ['My Tasks', ClipboardList], ['Team', Users], ['Calendar', CalendarDays], ['Notifications', Bell], ['Settings', Settings]] as [string, React.ComponentType<{ className?: string }>][]).map(([name, Icon]) => <Button key={String(name)} variant={page === name ? 'secondary' : 'ghost'} className={`h-10 justify-start gap-3 rounded-lg ${page === name ? 'bg-indigo-50 font-semibold text-indigo-700 shadow-none dark:bg-indigo-950/40 dark:text-indigo-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} onClick={() => { setPage(String(name)); setMobile(false) }}><Icon data-icon="inline-start" />{name}{name === 'Notifications' && state.notifications > 0 && <Badge className="ml-auto">{state.notifications}</Badge>}</Button>)}</nav><div className="mt-auto flex flex-col gap-3"><div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3"><Initials value={state.name.split(' ').map((part) => part[0]).join('')} className="size-8" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-100">{state.name}</p><p className="truncate text-xs text-slate-500">{state.email}</p></div><DropdownMenu><DropdownMenuTrigger><Button variant="ghost" size="icon" aria-label="Open profile menu"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => setPage('Settings')}>Profile</DropdownMenuItem><DropdownMenuItem onClick={() => setPage('Settings')}>Settings</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={signOut}>Sign Out</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div><Card className="border-0 bg-indigo-50 shadow-none"><CardContent className="p-4"><p className="text-sm font-semibold">Need a hand?</p><p className="mt-1 text-xs text-muted-foreground">Press ⌘ K to jump anywhere.</p></CardContent></Card></div></aside><main className="min-h-screen md:pl-64"><header className="tf-header sticky top-0 z-20 flex h-[4.5rem] items-center justify-between border-b px-4 backdrop-blur-xl sm:px-8"><div className="flex items-center gap-3"><Button size="icon" variant="ghost" className="md:hidden" onClick={() => setMobile(true)}><Menu /></Button><button className="hidden items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground md:flex" onClick={() => setCommand(true)}><Search className="size-4" />Search anything <kbd className="ml-8 rounded border bg-background px-1.5 text-[10px]">⌘ K</kbd></button></div><div className="flex items-center gap-3"><Button size="icon" variant="ghost" onClick={() => setPage('Notifications')}><Bell /></Button><Button size="sm" onClick={() => setQuick(true)}><Plus data-icon="inline-start" />Create</Button><button onClick={() => setPage('Settings')}><Initials value={state.name.split(' ').map((x) => x[0]).join('')} /></button></div></header><section className="mx-auto max-w-[1600px] p-4 sm:p-8">{content}</section></main>{toast && <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-foreground px-4 py-3 text-sm text-background shadow-lg">{toast}</div>}<Quick open={quick} close={() => setQuick(false)} add={addTask} state={state} /><Detail task={selected} close={() => setSelectedId(null)} state={state} update={patchTask} setState={setState} flash={flash} /><Dialog open={command} onOpenChange={setCommand}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><Command className="size-5" />Command palette</DialogTitle></DialogHeader><div className="flex flex-col gap-1">{['Dashboard', 'Projects', 'My Tasks', 'Team', 'Calendar', 'Notifications', 'Settings'].map((item) => <button key={item} className="rounded-lg p-3 text-left hover:bg-muted" onClick={() => { setPage(item); setCommand(false) }}>{item}</button>)}<button className="rounded-lg p-3 text-left hover:bg-muted" onClick={() => setState((s) => ({ ...s, dark: !s.dark }))}>Toggle dark mode</button><button className="rounded-lg p-3 text-left hover:bg-muted" onClick={() => { setQuick(true); setCommand(false) }}>Create task</button></div></DialogContent></Dialog>
+ <Dialog open={showInactivityWarning} onOpenChange={() => {}}>
+  <DialogContent>
+
+    <DialogHeader>
+      <DialogTitle>Are you still there?</DialogTitle>
+    </DialogHeader>
+
+    <p className="text-sm text-muted-foreground">
+      You have been inactive for almost 2 hours. For your security,
+      you will be signed out in 5 minutes unless you choose to stay logged in.
+    </p>
+
+    <Button
+      className="w-full"
+      onClick={() => {
+        localStorage.setItem('taskflow-last-activity', String(Date.now()))
+        setShowInactivityWarning(false)
+      }}
+    >
+      Stay logged in
+    </Button>
+  </DialogContent>
+</Dialog>
+</div>
+</div>
 }
 
 function Dashboard({ state, go, open, create }: { state: State; go: (page: string) => void; open: (task: Task) => void; create: () => void }) { const done = state.tasks.filter((t) => t.status === 'Done').length; const active = state.tasks.length - done; const percent = state.tasks.length ? Math.round(done / state.tasks.length * 100) : 0; const mine = state.tasks.filter((t) => t.assignee === 'AM' && t.status !== 'Done'); return <div className="flex flex-col gap-8"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-sm font-medium text-indigo-600">Tuesday, October 15, 2024</p><h1 className="mt-1 text-3xl font-bold">Good morning, {state.name.split(' ')[0]}</h1><p className="mt-2 text-muted-foreground">Your command center for focused, collaborative work.</p></div><Button onClick={create}><Plus data-icon="inline-start" />Create task</Button></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{([['Total projects', state.projects.length, FolderKanban], ['Active tasks', active, ClipboardList], ['Completed', done, Check], ['Urgent', state.tasks.filter((t) => t.priority === 'Urgent').length, Zap], ['My work', mine.length, Clock3]] as [string, number, React.ComponentType<{ className?: string }>][]).map(([label, value, Icon]) => <Card key={String(label)} onClick={() => go(label === 'Total projects' ? 'Projects' : 'My Tasks')} className="cursor-pointer"><CardContent className="flex items-start justify-between p-5"><div><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-bold">{value as number}</p><p className="mt-2 text-xs text-emerald-600">Live from workspace</p></div><Icon className="rounded-lg bg-muted p-2.5 text-muted-foreground" /></CardContent></Card>)}</div><div className="grid gap-6 xl:grid-cols-2"><Card><CardHeader><CardTitle>Overall completion</CardTitle><p className="mt-1 text-sm text-muted-foreground">Completed vs remaining tasks</p></CardHeader><CardContent><div className="flex items-end justify-between"><span className="text-4xl font-bold">{percent}%</span><span className="text-sm text-muted-foreground">{done} of {state.tasks.length} tasks</span></div><Progress value={percent} className="mt-4 h-3" /><div className="mt-6 grid grid-cols-4 gap-3">{(['To Do', 'In Progress', 'Review', 'Done'] as Status[]).map((status) => <button key={status} className="text-left" onClick={() => go('My Tasks')}><p className="text-xl font-bold">{state.tasks.filter((t) => t.status === status).length}</p><p className="text-xs text-muted-foreground">{status}</p></button>)}</div></CardContent></Card><Card><CardHeader><CardTitle>My Work</CardTitle><p className="mt-1 text-sm text-muted-foreground">Tasks assigned to you</p></CardHeader><CardContent className="flex flex-col gap-2">{mine.length ? mine.map((task) => <button key={task.id} className="flex items-center gap-3 rounded-lg p-2 text-left hover:bg-muted" onClick={() => open(task)}><span className="size-2 rounded-full bg-orange-500" /><span className="flex-1 truncate text-sm">{task.title}</span><Badge className={priorityStyle[task.priority]}>{task.due}</Badge></button>) : <Empty text="No tasks assigned to you" />}</CardContent></Card></div><div className="grid gap-6 md:grid-cols-2"><Card><CardHeader><CardTitle>Project progress</CardTitle></CardHeader><CardContent className="flex flex-col gap-5">{state.projects.filter((p) => !p.archived).map((project) => { const list = state.tasks.filter((t) => t.project === project.name); const value = list.length ? Math.round(list.filter((t) => t.status === 'Done').length / list.length * 100) : 0; return <button key={project.id} className="text-left" onClick={() => go('My Tasks')}><div className="mb-2 flex justify-between text-sm"><span>{project.name}</span><b>{value}%</b></div><Progress value={value} className="h-2" /></button> })}</CardContent></Card><Card><CardHeader><CardTitle>Recent activity</CardTitle></CardHeader><CardContent className="flex flex-col gap-4">{state.activities.slice(0, 4).map((item) => <div key={item} className="flex gap-3"><Initials value="AM" className="size-8" /><p className="text-sm">{item}</p></div>)}</CardContent></Card></div></div> }
